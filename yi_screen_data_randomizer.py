@@ -50,7 +50,7 @@ while '{:02X}'.format(level) < 'DE':
     bytes_read_list = list(bytes_read)                                  # the binary structure is indexable, but immutable, so convert to a list to reassign bytes
     index = 2
     while True:
-        if bytes_read[-index] == 255 and (index - 2) % 5 == 0:
+        if bytes_read[-index] == 255: # and (index - 2) % 5 == 0:
             break
         else:
             bytes_read_list[-(index+3)] = randomized[0].destination     # replace the existing screen exit data with a random entry
