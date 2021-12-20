@@ -11,8 +11,6 @@ class Screen_Exit_Data:
     def __str__(self):
         return '{:02X} {:02X} {:02X} {:02X} {:02X}'.format(self.target_page, self.destination, self.x_coord, self.y_coord, self.entrance)
 
-
-
 level = 0
 screen_exits_master = []
 while '{:02X}'.format(level) < 'DE':                                    # Hardcoded for vanilla, can alternatively just run until file not found exception
