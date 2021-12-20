@@ -46,7 +46,6 @@ while '{:02X}'.format(level) < 'DE':
     with open("level-{:02X}-obj.bin".format(level), "rb") as f:
         bytes_read = f.read()
     f.close()
-    #print(bytes_read)
     bytes_read_list = list(bytes_read)                                  # the binary structure is indexable, but immutable, so convert to a list to reassign bytes
     index = 2
     while True:
