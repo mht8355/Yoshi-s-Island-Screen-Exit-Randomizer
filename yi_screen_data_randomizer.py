@@ -1,4 +1,7 @@
 import random
+import struct
+import itertools
+import copy
 
 class Screen_Exit_Data:
     def __init__(self, target_page, destination, x_coord, y_coord, entrance_or_return):
@@ -8,58 +11,73 @@ class Screen_Exit_Data:
         self.y_coord = y_coord
         self.entrance = entrance_or_return
 
+    @staticmethod
+    def from_bytes(bytes):
+        """Returns a Screen Exit Data object from a 5 byte chunk."""
+        #print('b', bytes, len(bytes))
+        return Screen_Exit_Data(bytes[0], bytes[1], bytes[2], bytes[3], bytes[4])
+
     def __str__(self):
         return '{:02X} {:02X} {:02X} {:02X} {:02X}'.format(self.target_page, self.destination, self.x_coord, self.y_coord, self.entrance)
 
-level = 0
-screen_exits_master = []
-while '{:02X}'.format(level) < 'DE':                                    # Hardcoded for vanilla, can alternatively just run until file not found exception
-    try:
-        with open("level-{:02X}-obj.bin".format(level), "rb") as f:
-            bytes_read = f.read()
-        f.close()
-        index = 2                                                       # screen exit data exists at the end of the level object binaries;
-        screen_exits = []                                               # preceded, and followed, by one byte of value FF
-        print('Level {:02X}'.format(level))
-        while True:                                                     # iterate backwards from the end of the file
-            if bytes_read[-index] == 255: # and (index - 2) % 5 == 0:   # each screen exit entry is always 5 bytes, the last byte will never be FF
-                break                                                   # so, if the last byte is FF, we've processed all screen exit data, or none exists
-            else:                                                       # if it is screen exit data, create the object and add to screen exit data list
-                screen_exits.append(Screen_Exit_Data(bytes_read[-(index+4)],bytes_read[-(index+3)],bytes_read[-(index+2)],bytes_read[-(index+1)],bytes_read[-index]))
-                index += 5                                              # attempt to find the next entry
-        for x in screen_exits:
-            screen_exits_master.append(x)                               # if no exceptions, add all the data to the master list of screen exit data
-        for x in screen_exits:
-            print('\t{}'.format(x))
-    except Exception as e:
-        print('{} at level = {}'.format(e,level))
-    level += 1
-#for x in screen_exits_master:
-#    print('{:02X} {:02X} {:02X} {:02X} {:02X}'.format(x.target_page, x.destination, x.x_coord, x.y_coord, x.entrance))
-randomized = screen_exits_master.copy()                                 # unnecessary copy
-random.shuffle(randomized)
+    def data_overlay(self, new_exit):
+        """Returns a 5 byte chunk with the new exit data."""
+        return struct.pack('@BBBBB', self.target_page, new_exit.destination, new_exit.x_coord, new_exit.y_coord, new_exit.entrance)
 
-level = 0
-while '{:02X}'.format(level) < 'DE':
-    with open("level-{:02X}-obj.bin".format(level), "rb") as f:
-        bytes_read = f.read()
-    f.close()
-    bytes_read_list = list(bytes_read)                                  # the binary structure is indexable, but immutable, so convert to a list to reassign bytes
-    index = 2
-    while True:
-        if bytes_read[-index] == 255: # and (index - 2) % 5 == 0:
-            break
-        else:
-            bytes_read_list[-(index+3)] = randomized[0].destination     # replace the existing screen exit data with a random entry
-            bytes_read_list[-(index+2)] = randomized[0].x_coord
-            bytes_read_list[-(index+1)] = randomized[0].y_coord
-            bytes_read_list[-(index)] = randomized[0].entrance
-            index += 5
-            del randomized[0]                                           # screen exit data has been used, so get rid of it ;TODO: just increment an index (for performance reasons)
-    #print(bytes(bytes_read_list))
-    with open("level-{:02X}-obj.bin".format(level), "wb") as f:
-        f.write(bytes(bytes_read_list))                                 # convert the list to bytes and write back to file 
-    f.close()
-    level += 1
-    if level == 125:                                                    # this one level doesn't follow the convention of FF before and after screen data, and has no screen exit data anyway, so ignore it completely
-        level += 1
+
+class Level(object):
+    def __init__(self, path):
+        self.path = path
+        self.stage = None
+        self.old_exits = None
+        self.new_exits = None
+
+        with open(path, 'rb') as f:
+            blob = f.read()
+
+            start_byte = 0
+            # Find the starting index for the screen exit data by iterating backwards.
+            for index in range(len(blob)-2, 0, -5):
+                if blob[index] == 0xFF:
+                    start_byte = index + 1
+                    break
+
+            self.stage = blob[:start_byte]
+            # Create a list of Screen Exit Data objects from the level data.
+            self.old_exits = [Screen_Exit_Data.from_bytes(blob[k:k+5]) for k in range(start_byte, len(blob), 5) if len(blob[k:k+5]) == 5]
+
+    def take_new_exits(self, exit_list):
+        """Assign new exit data to the Level object."""
+        self.new_exits = []
+        for _ in range(len(self.old_exits)):
+            self.new_exits.append(exit_list.pop())
+
+    def output_data(self):
+        """Returns constructed level data with new exit(s), if any exist."""
+        print('Level {}\nold exits:'.format(self.path))
+        for exit in self.old_exits:
+            print(exit)
+        print('new exits:')
+        for exit in self.new_exits:
+            print(exit)
+        exit_data = b''.join([old_exit.data_overlay(new_exit) for (old_exit, new_exit) in zip(self.old_exits, self.new_exits)])
+        return self.stage + exit_data + b'\xff'
+
+    def write(self):
+        """Writes the level data to file."""
+        with open(self.path, 'wb') as f:
+            f.write(self.output_data())
+
+EXCLUDED_LEVELS = [125]                 # Levels that don't follow proper formatting.
+LAST_LEVEL = 222
+
+# Create a list of Level objects from each level binary.
+levels = [Level('level/level-{:02X}-obj.bin'.format(l)) for l in range(LAST_LEVEL+1) if l not in EXCLUDED_LEVELS]
+# Create a list of Screen Exit Data objects from all Levels.
+all_exits = list(itertools.chain(*[l.old_exits for l in levels]))
+random.shuffle(all_exits)               # Randomize order.
+
+new_levels = copy.deepcopy(levels)
+for nl in new_levels:
+    nl.take_new_exits(all_exits)        # Assign new exit data.
+    nl.write()
